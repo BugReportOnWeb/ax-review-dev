@@ -19,10 +19,7 @@ import type { A11yIssue, FailedBatch } from './types';
 import type { GitHubClient } from './github/client';
 import {
   formatIssueComment,
-  formatReviewSummary,
-  formatNoIssuesComment,
   formatCheckSummary,
-  wrapCommentWithIdentifier,
   groupByFile,
   formatFirstRunSummary,
   formatDeltaSummary
@@ -45,7 +42,7 @@ function isViolation(issue: A11yIssue): boolean {
  * **Review behavior:**
  * - Only violations (CRITICAL, SERIOUS, MODERATE) get inline comments
  * - Good practices (MINOR) are included in the summary only
- * - If no issues, posts a success comment
+ * - PRs with no violations only receive the summary comment
  * 
  * **Comment limits:**
  * - GitHub limits reviews to ~50 comments per batch
@@ -64,33 +61,30 @@ async function postReview(
   issues: A11yIssue[],
   failedBatches: FailedBatch[]
 ): Promise<void> {
-  // No issues found - post success comment
-  if (issues.length === 0) {
-    await github.createReview(prNumber, headSha, [], formatNoIssuesComment());
-    return;
-  } else {
-    const violations = issues.filter(isViolation);
-    const violationsByFile = groupByFile(violations);
-    const filePatches = await github.getPRFiles(prNumber);
-    const patchMap = new Map(filePatches.map(f => [f.filename, f.patch]));
-    const comments = await buildInlineComments(violationsByFile, patchMap, github);
-
-    // Post review with inline comments but no body.
-    // The summary lives in the standalone comment below
-    await github.createReview(prNumber, headSha, comments, '');
-  }
-
   const existing = await github.findSummaryComment(prNumber);
 
   if (!existing) {
-    // First run — post the full dashboard
+    // First run: post the full dashboard
     const body = formatFirstRunSummary(issues, failedBatches);
     await github.createIssueComment(prNumber, body);
   } else {
-    // Subsequent push — update in place with minimal delta
+    // Subsequent push: update in place with minimal delta
     const body = formatDeltaSummary(issues, failedBatches, headSha, existing.body);
     await github.updateIssueComment(existing.id, body);
   }
+
+  const violations = issues.filter(isViolation);
+  if (violations.length === 0) return;
+
+  const violationsByFile = groupByFile(violations);
+  const filePatches = await github.getPRFiles(prNumber);
+  const patchMap = new Map(filePatches.map(f => [f.filename, f.patch]));
+
+  const comments = await buildInlineComments(violationsByFile, patchMap, github);
+  if (comments.length === 0) return;
+
+  // Post review with inline comments but no body.
+  await github.createReview(prNumber, headSha, comments, '');
 }
 
 /**
@@ -142,32 +136,6 @@ async function postCheckRun(
       `can be displayed as annotations. All issues are included in the summary.`
     );
   }
-}
-
-/**
- * Build summary body for PR review.
- */
-function buildSummaryBody(issues: A11yIssue[], failedBatches: FailedBatch[]): string {
-  const parts: string[] = [formatReviewSummary(issues)];
-
-  if (failedBatches.length > 0) {
-    parts.push('');
-    parts.push('---');
-    parts.push('');
-    parts.push(`⚠️ **Partial Processing Warning**`);
-    parts.push('');
-    parts.push(
-      `${failedBatches.length} batch(es) failed to process. ` +
-      `The following files were not analyzed:`
-    );
-
-    for (const failed of failedBatches) {
-      parts.push(`- **Batch ${failed.batchIndex + 1}**: ${failed.error}`);
-      parts.push(`  - Files: ${failed.files.join(', ')}`);
-    }
-  }
-
-  return wrapCommentWithIdentifier(parts.join('\n'));
 }
 
 /**

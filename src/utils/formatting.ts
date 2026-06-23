@@ -51,8 +51,8 @@ export const SEVERITY_ANNOTATION_LEVELS: Record<Severity, 'failure' | 'warning' 
  * HTML comment identifier for finding/updating existing comments.
  */
 export const COMMENT_IDENTIFIER = '<!-- a11y-review -->';
-const SUMMARY_MARKER = '<!-- ax-review-summary -->';
-const VIOLATION_COUNT_REGEX = /<!-- ax-violations:(\d+) -->/;
+export const SUMMARY_MARKER = '<!-- ax-review-summary -->';
+export const VIOLATION_COUNT_REGEX = /<!-- ax-violations:(\d+) -->/;
 
 // =============================================================================
 // Review Comment Formatting
@@ -89,15 +89,15 @@ export function formatIssueComment(issue: A11yIssue): string {
   const wcagLevel = formatWcagLevel(issue.wcag_level);
 
   const parts = [
-    `${icon} **${issue.title}**`,
+    `${icon} **${escapeHtml(issue.title)}**`,
     '',
     `**WCAG ${issue.wcag_criterion}** (${wcagLevel})  `,
     `**Severity:** ${issue.severity}  `,
     `**Confidence:** ${issue.confidence}`,
     '',
-    issue.description,
+    escapeHtml(issue.description),
     '',
-    `**Impact:** ${issue.impact}`,
+    `**Impact:** ${escapeHtml(issue.impact)}`,
     '',
     '**Suggested fix:**',
     '```suggestion',
@@ -119,8 +119,9 @@ export function formatIssueComment(issue: A11yIssue): string {
  * formatIssueListItem(issue);
  */
 export function formatIssueListItem(issue: A11yIssue): string {
-  const line = issue.line !== null ? `:${issue.line}` : '';
-  return `- **${issue.file}${line}**: ${issue.title} (WCAG ${issue.wcag_criterion})`;
+  const line = issue.line ? ` (line ${issue.line})` : '';
+  const title = escapeHtml(issue.title);
+  return `- **${title}** (WCAG ${issue.wcag_criterion}) — \`${issue.file}\`${line}`;
 }
 
 /**
@@ -201,50 +202,85 @@ export function formatFirstRunSummary(
   issues: A11yIssue[],
   failedBatches: FailedBatch[]
 ): string {
-  const violations = issues.filter(i => i.severity !== 'MINOR').length;
-  const goodPractices = issues.filter(i => i.severity === 'MINOR').length;
-  const status = violations > 0 ? '🔴 Failed' : '🟢 Passed';
+  const violations = issues.filter(i => i.severity !== 'MINOR');
+  const goodPractices = issues.filter(i => i.severity === 'MINOR');
+  const violationCount = violations.length;
+  const status = violationCount > 0 ? '🔴 Failed' : '🟢 Passed';
 
   const lines = [
     SUMMARY_MARKER,
-    `<!-- ax-violations:${violations} -->`,
+    `<!-- ax-violations:${violationCount} -->`,
     '',
-    `## ♿ Accessibility Review — ${status}`,
+    `## Accessibility Review — ${status}`,
     '',
     '| Metric | Count |',
     '|--------|-------|',
-    `| 🔴 Violations (CRITICAL + SERIOUS + MODERATE) | **${violations}** |`,
-    `| 💡 Suggestions (MINOR) | **${goodPractices}** |`,
-    `| 📋 Total issues | **${violations + goodPractices}** |`,
+    `| Violations (CRITICAL + SERIOUS + MODERATE) | **${violationCount}** |`,
+    `| Suggestions (MINOR) | **${goodPractices.length}** |`,
+    `| Total issues | **${issues.length}** |`,
+    ''
   ];
 
-  if (violations > 0) {
-    lines.push(
-      '',
-      `**${violations} violation(s) found.** Inline comments have been posted on the affected lines in the Files Changed tab — each includes the WCAG criterion, severity, and an exact suggested fix.`
-    );
-  } else {
-    lines.push(
-      '',
-      '**No violations found.** Any suggestions above are minor improvements beyond the WCAG minimum and will not block this PR.'
-    );
+  // Affected elements breakdown
+  if (violations.length > 0) {
+    lines.push('### Affected Elements', '');
+
+    const grouped = groupBySeverity(violations);
+
+    // Violations
+    for (const severity of Object.keys(grouped) as Severity[]) {
+      if (grouped[severity].length > 0) {
+        const icon = SEVERITY_ICONS[severity];
+        const severityTitle = SEVERITY_TITLES[severity];
+
+        lines.push(`#### ${icon} ${severityTitle} Issues (${grouped[severity].length})`);
+        lines.push('');
+        for (const issue of grouped[severity]) {
+          lines.push(formatIssueListItem(issue));
+        }
+        lines.push('');
+      }
+    }
+  }
+
+  // Good practices
+  if (goodPractices.length > 0) {
+    lines.push(`### 🔵 Good Practices (${goodPractices.length})`);
+    lines.push('');
+    lines.push('These are not violations but represent accessibility best practices:');
+    lines.push('');
+    for (const issue of goodPractices) {
+      lines.push(formatIssueListItem(issue));
+    }
+    lines.push('');
+  }
+
+  if (violations.length === 0) {
+    lines.push('**No WCAG 2.2 AA violations found.**', '');
+
+    if (goodPractices.length > 0) {
+      lines.push(
+        'Any suggestions above are minor improvements beyond the WCAG minimum and will not block this PR.'
+      );
+    } else {
+      lines.push(
+        'The changes pass accessibility requirements. Keep up the great work! 🎉'
+      );
+    }
   }
 
   if (failedBatches.length > 0) {
     lines.push(
       '',
-      `⚠️ ${failedBatches.length} batch(es) failed to process — some files may not have been analyzed.`
+      `⚠️ ${failedBatches.length} batch(es) failed to process. Some files may not have been analyzed.`
     );
   }
-
-  lines.push('', '> _This comment updates automatically on each push._');
 
   return lines.join('\n');
 }
 
 /**
  * Format the delta update for subsequent pushes.
- * Replaces the existing summary comment in place — minimal, no wall of text.
  */
 export function formatDeltaSummary(
   issues: A11yIssue[],
@@ -258,7 +294,10 @@ export function formatDeltaSummary(
 
   // Parse previous violation count from hidden marker
   const prevMatch = prevBody.match(VIOLATION_COUNT_REGEX);
-  const prevCount = prevMatch ? parseInt(prevMatch[1]) : null;
+  const prevViolationCount = prevMatch?.[1];
+  const prevCount = prevViolationCount
+    ? parseInt(prevViolationCount, 10)
+    : null;
 
   let deltaStr = '';
   if (prevCount !== null) {
@@ -272,24 +311,20 @@ export function formatDeltaSummary(
     SUMMARY_MARKER,
     `<!-- ax-violations:${violations} -->`,
     '',
-    `## ♿ Accessibility Review — ${status}`,
+    `## Accessibility Review — ${status}`,
     '',
     '| Metric | Count |',
     '|--------|-------|',
-    `| 🔴 Violations | **${violations}**${deltaStr} |`,
-    `| 💡 Suggestions | **${goodPractices}** |`,
+    `| Violations | **${violations}**${deltaStr} |`,
+    `| Suggestions | **${goodPractices}** |`,
     '',
     `> Re-scanned at commit \`${sha.slice(0, 7)}\``,
-    '',
-    violations > 0
-      ? 'Inline comments on affected lines are in the **Files Changed** tab.'
-      : '**No violations on this push.**',
   ];
 
   if (failedBatches.length > 0) {
     lines.push(
       '',
-      `⚠️ ${failedBatches.length} batch(es) failed to process.`
+      `⚠️ ${failedBatches.length} batch(es) failed to process. Some files may not have been analyzed.`
     );
   }
 
@@ -453,4 +488,14 @@ export function groupByFile(issues: A11yIssue[]): Map<string, A11yIssue[]> {
  */
 export function wrapCommentWithIdentifier(body: string): string {
   return `${COMMENT_IDENTIFIER}\n${body}`;
+}
+
+/**
+ * Escape HTML characters so they render as literal text in markdown.
+ */
+export function escapeHtml(text: string): string {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
