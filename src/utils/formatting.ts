@@ -289,7 +289,7 @@ export function formatDeltaSummary(
   prevBody: string
 ): string {
   const violations = issues.filter(i => i.severity !== 'MINOR').length;
-  const goodPractices = issues.filter(i => i.severity === 'MINOR').length;
+  const goodPractices = issues.filter(i => i.severity === 'MINOR');
   const status = violations > 0 ? '🔴 Failed' : '🟢 Passed';
 
   // Parse previous violation count from hidden marker
@@ -316,10 +316,20 @@ export function formatDeltaSummary(
     '| Metric | Count |',
     '|--------|-------|',
     `| Violations | **${violations}**${deltaStr} |`,
-    `| Suggestions | **${goodPractices}** |`,
+    `| Suggestions | **${goodPractices.length}** |`,
     '',
-    `> Re-scanned at commit \`${sha.slice(0, 7)}\``,
   ];
+
+  if (goodPractices.length > 0) {
+    lines.push(`### 🔵 Good Practices (${goodPractices.length})`);
+    lines.push('');
+    lines.push('These are not violations but represent accessibility best practices:');
+    lines.push('');
+    for (const issue of goodPractices) {
+      lines.push(formatIssueListItem(issue));
+    }
+    lines.push('');
+  }
 
   if (failedBatches.length > 0) {
     lines.push(
@@ -328,7 +338,11 @@ export function formatDeltaSummary(
     );
   }
 
-  lines.push('', '> _This comment updates automatically on each push._');
+  lines.push(
+    `> Re-scanned at commit \`${sha.slice(0, 7)}\``,
+    '',
+    '> _This comment updates automatically on each push._'
+  );
 
   return lines.join('\n');
 }

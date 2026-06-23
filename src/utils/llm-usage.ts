@@ -12,7 +12,6 @@ import * as core from '@actions/core';
 interface LLMUsage {
   provider: string;
   model: string;
-  requests: number;
   promptTokens: number;
   completionTokens: number;
 }
@@ -20,7 +19,6 @@ interface LLMUsage {
 const usage: LLMUsage = {
   provider: 'Undefined',
   model: 'Undefined',
-  requests: 0,
   promptTokens: 0,
   completionTokens: 0,
 };
@@ -39,7 +37,6 @@ export function recordLLMUsage(
 ): void {
   usage.provider = provider;
   usage.model = model;
-  usage.requests++;
   usage.promptTokens += promptTokens;
   usage.completionTokens += completionTokens;
 }
@@ -53,10 +50,10 @@ export function logLLMUsage(): void {
   core.info('=== LLM Usage Summary ===');
   core.info(`Provider: ${usage.provider}`);
   core.info(`Model: ${usage.model}`);
-  core.info(`Requests: ${usage.requests}`);
   core.info(`Prompt Tokens: ${usage.promptTokens}`);
   core.info(`Completion Tokens: ${usage.completionTokens}`);
   core.info(`Total Tokens: ${totalTokens}`);
+  core.info('=========================');
 }
 
 /**
@@ -66,7 +63,6 @@ export function logLLMUsage(): void {
 export function resetLLMUsage(): void {
   usage.provider = 'Undefined';
   usage.model = 'Undefined';
-  usage.requests = 0;
   usage.promptTokens = 0;
   usage.completionTokens = 0;
 }
