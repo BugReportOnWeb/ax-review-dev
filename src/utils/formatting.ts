@@ -51,6 +51,8 @@ export const SEVERITY_ANNOTATION_LEVELS: Record<Severity, 'failure' | 'warning' 
  * HTML comment identifier for finding/updating existing comments.
  */
 export const COMMENT_IDENTIFIER = '<!-- a11y-review -->';
+const SUMMARY_MARKER = '<!-- ax-review-summary -->';
+const VIOLATION_COUNT_REGEX = /<!-- ax-violations:(\d+) -->/;
 
 // =============================================================================
 // Review Comment Formatting
@@ -131,7 +133,7 @@ export function formatIssueListItem(issue: A11yIssue): string {
  * @returns Formatted markdown summary
  */
 export function formatReviewSummary(issues: A11yIssue[]): string {
-  const violations = issues.filter(i => 
+  const violations = issues.filter(i =>
     i.severity === 'CRITICAL' || i.severity === 'SERIOUS' || i.severity === 'MODERATE'
   );
   const goodPractices = issues.filter(i => i.severity === 'MINOR');
@@ -189,6 +191,111 @@ export function formatReviewSummary(issues: A11yIssue[]): string {
   }
 
   return parts.join('\n');
+}
+
+/**
+ * Format the first-run detailed summary dashboard.
+ * Posted when no previous summary comment exists on the PR.
+ */
+export function formatFirstRunSummary(
+  issues: A11yIssue[],
+  failedBatches: FailedBatch[]
+): string {
+  const violations = issues.filter(i => i.severity !== 'MINOR').length;
+  const goodPractices = issues.filter(i => i.severity === 'MINOR').length;
+  const status = violations > 0 ? '🔴 Failed' : '🟢 Passed';
+
+  const lines = [
+    SUMMARY_MARKER,
+    `<!-- ax-violations:${violations} -->`,
+    '',
+    `## ♿ Accessibility Review — ${status}`,
+    '',
+    '| Metric | Count |',
+    '|--------|-------|',
+    `| 🔴 Violations (CRITICAL + SERIOUS + MODERATE) | **${violations}** |`,
+    `| 💡 Suggestions (MINOR) | **${goodPractices}** |`,
+    `| 📋 Total issues | **${violations + goodPractices}** |`,
+  ];
+
+  if (violations > 0) {
+    lines.push(
+      '',
+      `**${violations} violation(s) found.** Inline comments have been posted on the affected lines in the Files Changed tab — each includes the WCAG criterion, severity, and an exact suggested fix.`
+    );
+  } else {
+    lines.push(
+      '',
+      '**No violations found.** Any suggestions above are minor improvements beyond the WCAG minimum and will not block this PR.'
+    );
+  }
+
+  if (failedBatches.length > 0) {
+    lines.push(
+      '',
+      `⚠️ ${failedBatches.length} batch(es) failed to process — some files may not have been analyzed.`
+    );
+  }
+
+  lines.push('', '> _This comment updates automatically on each push._');
+
+  return lines.join('\n');
+}
+
+/**
+ * Format the delta update for subsequent pushes.
+ * Replaces the existing summary comment in place — minimal, no wall of text.
+ */
+export function formatDeltaSummary(
+  issues: A11yIssue[],
+  failedBatches: FailedBatch[],
+  sha: string,
+  prevBody: string
+): string {
+  const violations = issues.filter(i => i.severity !== 'MINOR').length;
+  const goodPractices = issues.filter(i => i.severity === 'MINOR').length;
+  const status = violations > 0 ? '🔴 Failed' : '🟢 Passed';
+
+  // Parse previous violation count from hidden marker
+  const prevMatch = prevBody.match(VIOLATION_COUNT_REGEX);
+  const prevCount = prevMatch ? parseInt(prevMatch[1]) : null;
+
+  let deltaStr = '';
+  if (prevCount !== null) {
+    const delta = violations - prevCount;
+    if (delta > 0) deltaStr = ` ⬆️ +${delta} from last push`;
+    else if (delta < 0) deltaStr = ` ⬇️ ${delta} from last push`;
+    else deltaStr = ` ↔️ no change`;
+  }
+
+  const lines = [
+    SUMMARY_MARKER,
+    `<!-- ax-violations:${violations} -->`,
+    '',
+    `## ♿ Accessibility Review — ${status}`,
+    '',
+    '| Metric | Count |',
+    '|--------|-------|',
+    `| 🔴 Violations | **${violations}**${deltaStr} |`,
+    `| 💡 Suggestions | **${goodPractices}** |`,
+    '',
+    `> Re-scanned at commit \`${sha.slice(0, 7)}\``,
+    '',
+    violations > 0
+      ? 'Inline comments on affected lines are in the **Files Changed** tab.'
+      : '**No violations on this push.**',
+  ];
+
+  if (failedBatches.length > 0) {
+    lines.push(
+      '',
+      `⚠️ ${failedBatches.length} batch(es) failed to process.`
+    );
+  }
+
+  lines.push('', '> _This comment updates automatically on each push._');
+
+  return lines.join('\n');
 }
 
 // =============================================================================

@@ -17,13 +17,15 @@
 import * as core from '@actions/core';
 import type { A11yIssue, FailedBatch } from './types';
 import type { GitHubClient } from './github/client';
-import { 
+import {
   formatIssueComment,
-  formatReviewSummary, 
+  formatReviewSummary,
   formatNoIssuesComment,
   formatCheckSummary,
   wrapCommentWithIdentifier,
-  groupByFile 
+  groupByFile,
+  formatFirstRunSummary,
+  formatDeltaSummary
 } from './utils/formatting';
 import { GITHUB_LIMITS } from './constants';
 
@@ -66,27 +68,29 @@ async function postReview(
   if (issues.length === 0) {
     await github.createReview(prNumber, headSha, [], formatNoIssuesComment());
     return;
+  } else {
+    const violations = issues.filter(isViolation);
+    const violationsByFile = groupByFile(violations);
+    const filePatches = await github.getPRFiles(prNumber);
+    const patchMap = new Map(filePatches.map(f => [f.filename, f.patch]));
+    const comments = await buildInlineComments(violationsByFile, patchMap, github);
+
+    // Post review with inline comments but no body.
+    // The summary lives in the standalone comment below
+    await github.createReview(prNumber, headSha, comments, '');
   }
 
-  // Build summary body
-  const summaryBody = buildSummaryBody(issues, failedBatches);
+  const existing = await github.findSummaryComment(prNumber);
 
-  // Filter to violations for inline comments (CRITICAL, SERIOUS, MODERATE)
-  // Good practices (MINOR) go in summary only
-  const violations = issues.filter(isViolation);
-
-  // Group violations by file for position mapping
-  const violationsByFile = groupByFile(violations);
-
-  // Fetch file patches for position mapping
-  const filePatches = await github.getPRFiles(prNumber);
-  const patchMap = new Map(filePatches.map(f => [f.filename, f.patch]));
-
-  // Build inline comments
-  const comments = await buildInlineComments(violationsByFile, patchMap, github);
-
-  // Create the review
-  await github.createReview(prNumber, headSha, comments, summaryBody);
+  if (!existing) {
+    // First run — post the full dashboard
+    const body = formatFirstRunSummary(issues, failedBatches);
+    await github.createIssueComment(prNumber, body);
+  } else {
+    // Subsequent push — update in place with minimal delta
+    const body = formatDeltaSummary(issues, failedBatches, headSha, existing.body);
+    await github.updateIssueComment(existing.id, body);
+  }
 }
 
 /**
@@ -121,7 +125,7 @@ async function postCheckRun(
   // Count by severity
   const violations = issues.filter(isViolation).length;
   const goodPractices = issues.filter(i => i.severity === 'MINOR').length;
-  
+
   // Build annotations (limited to 50)
   const annotations = buildAnnotations(issues);
 
@@ -156,7 +160,7 @@ function buildSummaryBody(issues: A11yIssue[], failedBatches: FailedBatch[]): st
       `${failedBatches.length} batch(es) failed to process. ` +
       `The following files were not analyzed:`
     );
-    
+
     for (const failed of failedBatches) {
       parts.push(`- **Batch ${failed.batchIndex + 1}**: ${failed.error}`);
       parts.push(`  - Files: ${failed.files.join(', ')}`);
