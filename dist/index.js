@@ -303,8 +303,10 @@ Report issues with exact line numbers matching the [N] position markers.
 ## Pre-existing Accessibility Findings
 
 The following accessibility issues were detected by automated tools earlier
-in this workflow (e.g. axe-core, eslint, wcag-linter). Use these as baseline
-context when analyzing the PR diff:
+in this workflow. Use these as baseline context when analyzing the PR diff
+
+The results may contain detected issues or may indicate that automated checks
+found no accessibility violations.
 
 - Correlate findings with the modified code where applicable
 - Provide remediation guidance for issues that appear in the changed files
