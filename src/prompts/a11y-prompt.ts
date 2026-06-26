@@ -320,8 +320,16 @@ function formatFilePatch(file: FilePatch): string {
   const formattedLines: string[] = [];
 
   for (const line of lines) {
-    // Skip diff headers
-    if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) {
+    if (line.startsWith('@@')) {
+      const match = line.match(/\+(\d+)/);
+      if (match && match[1]) {
+        lineNumber = parseInt(match[1], 10) - 1;
+      }
+      formattedLines.push(escapePromptContent(line));
+      continue;
+    }
+
+    if (line.startsWith('+++') || line.startsWith('---')) {
       formattedLines.push(escapePromptContent(line));
       continue;
     }

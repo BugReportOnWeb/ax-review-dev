@@ -243,6 +243,7 @@ export class GitHubClient {
         if (match && match[1]) {
           newFileLine = parseInt(match[1], 10);
         }
+        position++;
         continue;
       }
 
