@@ -192,8 +192,16 @@ async function buildInlineComments(
         continue;
       }
 
+      // Temporary debug - add before the positionMap.get call
+      core.debug(`Position map for ${file}:`);
+      for (const [line, pos] of positionMap) {
+        core.debug(`  line ${line} → position ${pos}`);
+      }
+
       // Convert line number to diff position
+      core.debug(`Looking up issue line: ${issue.line} (type: ${typeof issue.line})`);
       const position = positionMap.get(issue.line);
+      core.debug(`Result: ${position}`);
       if (position === undefined) {
         core.debug(`Could not find position for line ${issue.line} in ${file}`);
         continue;

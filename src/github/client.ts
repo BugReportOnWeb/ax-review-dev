@@ -249,6 +249,7 @@ export class GitHubClient {
 
       // Skip file headers
       if (line.startsWith('+++') || line.startsWith('---')) {
+        position++;
         continue;
       }
 
