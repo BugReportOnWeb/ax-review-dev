@@ -162,6 +162,36 @@ Example - Multiple images without alt:
 - Line 33: <img src="avatar.jpg"> missing alt \u2192 Issue #2 at line 33
 Result: 2 SEPARATE issues
 
+## Inline Suggestion Rules
+When writing the suggestion field, the goal is a minimal, clean single-line diff replacement.
+
+### Multi-line elements (attribute on its own line)
+If the problematic attribute is on its own dedicated line, report the line number of THAT attribute line and suggest ONLY the fixed attribute:
+- Identify the exact line containing the faulty attribute (e.g. the line that reads alt={iconAlt || ''})
+- Set line to that attribute's [N] marker number
+- suggestion must contain only the corrected attribute, preserving original indentation
+- Example:
+  - Code: [54]   src={iconUrl}
+[55]   alt={iconAlt || ''}
+[56]   className="rt-grid-item-icon"
+  - Correct line: 55
+  - Correct suggestion:                   alt={iconAlt || 'Icon representing the grid item'}
+  - Wrong line: 53 (opening tag), 56 (className), 57 (closing />)
+  - Wrong suggestion: <img src={iconUrl} alt={iconAlt || 'Icon representing...'} className="rt-grid-item-icon" />
+
+### Single-line elements (entire element on one line)
+If the entire element is on one line, report that line number and rewrite the whole element with the fix applied:
+- Example:
+  - Code: [18] +  <img src={iconUrl} alt={iconAlt || ''} className="rt-grid-item-icon" />
+  - Correct line: 18
+  - Correct suggestion:           <img src={iconUrl} alt={iconAlt || 'Icon representing the grid item'} className="rt-grid-item-icon" />
+
+### Rules that apply to both cases
+- Always preserve the original indentation/whitespace exactly
+- Never add or remove surrounding lines
+- The suggestion replaces EXACTLY the line(s) reported \u2014 one line in, one line out
+- Do not wrap suggestions in markdown code fences or backticks
+
 ## Systematic Element Checklist
 
 For EACH file, check EVERY instance of these elements:
